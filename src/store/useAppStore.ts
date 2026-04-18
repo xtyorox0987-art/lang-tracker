@@ -7,6 +7,13 @@ import type {
 } from "../types";
 import { DEFAULT_SETTINGS, toLocalDateStr } from "../types";
 import {
+  todayRange,
+  weekRange,
+  monthRange,
+  yearRange,
+  allRange,
+} from "../lib/dates";
+import {
   addTimeEntry,
   getTimeEntriesForRange,
   getAnkiSnapshotsForRange,
@@ -63,41 +70,6 @@ interface AppState {
 
   // Init
   initTimer: () => Promise<void>;
-}
-
-function todayRange(): [number, number] {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const end = new Date(start.getTime() + 86400000);
-  return [start.getTime(), end.getTime()];
-}
-
-function weekRange(weekStartsOn: 0 | 1): [number, number] {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const day = today.getDay();
-  const diff = (day - weekStartsOn + 7) % 7;
-  const weekStart = new Date(today.getTime() - diff * 86400000);
-  const weekEnd = new Date(weekStart.getTime() + 7 * 86400000);
-  return [weekStart.getTime(), weekEnd.getTime()];
-}
-
-function monthRange(): [number, number] {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  return [start.getTime(), end.getTime()];
-}
-
-function yearRange(): [number, number] {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), 0, 1);
-  const end = new Date(now.getFullYear() + 1, 0, 1);
-  return [start.getTime(), end.getTime()];
-}
-
-function allRange(): [number, number] {
-  return [0, Date.now() + 86400000];
 }
 
 export const useAppStore = create<AppState>((set, get) => ({

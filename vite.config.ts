@@ -9,6 +9,20 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   plugins: [react(), tailwindcss()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          if (id.includes("node_modules/firebase/") || id.includes("node_modules/@firebase/")) {
+            return "firebase-vendor";
+          }
+          if (id.includes("node_modules/recharts/") || id.includes("node_modules/d3-")) {
+            return "recharts-vendor";
+          }
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       // AnkiConnect proxy to avoid CORS issues in development
