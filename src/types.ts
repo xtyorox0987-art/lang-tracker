@@ -31,11 +31,13 @@ export interface ActiveTimer {
 export interface AppSettings {
   ankiConnectUrl: string;
   weekStartsOn: 0 | 1; // 0=Sun, 1=Mon
+  dailyGoalMinutes: number; // 0 = disabled
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   ankiConnectUrl: "http://localhost:8765",
   weekStartsOn: 1,
+  dailyGoalMinutes: 0,
 };
 
 export const CATEGORY_LABELS: Record<Category, string> = {
@@ -45,9 +47,9 @@ export const CATEGORY_LABELS: Record<Category, string> = {
 };
 
 export const CATEGORY_COLORS: Record<Category, string> = {
-  active: "#e57cd8", // pink/magenta (Toggl-style)
-  passive: "#4bc0c8", // cyan/teal
-  anki: "#06d6a0", // green
+  active: "#ff6bcb", // vibrant pink
+  passive: "#22d3ee", // vivid cyan
+  anki: "#34d399", // bright emerald
 };
 
 /** ローカルタイムゾーンで "YYYY-MM-DD" を返す（toISOStringはUTC基準で日付がズレるため） */

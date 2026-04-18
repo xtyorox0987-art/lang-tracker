@@ -13,6 +13,8 @@ import {
   saveActiveTimer,
   loadActiveTimer,
   clearActiveTimer,
+  saveSettings as saveSettingsToDb,
+  loadSettings as loadSettingsFromDb,
 } from "./repository";
 
 interface AppState {
@@ -49,10 +51,15 @@ interface AppState {
 
   // Settings
   settings: AppSettings;
+  setSettings: (settings: AppSettings) => void;
 
   // Data version (bumped after imports/sync to trigger chart refresh)
   dataVersion: number;
   bumpDataVersion: () => void;
+
+  // Selected date for EntryList / AnkiStatus sync
+  selectedDate: string;
+  setSelectedDate: (date: string) => void;
 
   // Init
   initTimer: () => Promise<void>;
@@ -250,9 +257,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   settings: DEFAULT_SETTINGS,
+  setSettings: (newSettings) => {
+    set({ settings: newSettings });
+    const { userId } = get();
+    if (userId) saveSettingsToDb(userId, newSettings);
+  },
 
   dataVersion: 0,
   bumpDataVersion: () => set((s) => ({ dataVersion: s.dataVersion + 1 })),
+
+  selectedDate: toLocalDateStr(),
+  setSelectedDate: (date: string) => set({ selectedDate: date }),
 
   initTimer: async () => {
     const { userId } = get();
@@ -260,6 +275,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const timer = await loadActiveTimer(userId);
     if (timer?.isRunning) {
       set({ activeTimer: timer });
+    }
+    const savedSettings = await loadSettingsFromDb(userId);
+    if (savedSettings) {
+      set({ settings: { ...DEFAULT_SETTINGS, ...savedSettings } });
     }
   },
 }));

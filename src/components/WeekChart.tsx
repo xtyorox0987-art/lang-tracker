@@ -11,6 +11,8 @@ import {
   PieChart,
   Pie,
   Cell,
+  LineChart,
+  Line,
 } from "recharts";
 import { useAppStore } from "../store/useAppStore";
 import {
@@ -91,6 +93,100 @@ function barLabel(props: Record<string, unknown>) {
   );
 }
 
+function AnkiMatureTrend({
+  snaps,
+  period,
+}: {
+  snaps: AnkiSnapshot[];
+  period: Period;
+}) {
+  const data = useMemo(() => {
+    const sorted = [...snaps]
+      .filter((s) => s.matureCount > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // For year/all, aggregate to monthly (last snapshot per month)
+    if (period === "year" || period === "all") {
+      const monthMap = new Map<string, { label: string; mature: number }>();
+      for (const s of sorted) {
+        const d = new Date(s.date + "T00:00:00");
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const label =
+          period === "year"
+            ? MONTH_SHORT[d.getMonth()]
+            : `${MONTH_SHORT[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
+        monthMap.set(key, { label, mature: s.matureCount });
+      }
+      return [...monthMap.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, v]) => ({ date, ...v }));
+    }
+
+    return sorted.map((s) => {
+      const d = new Date(s.date + "T00:00:00");
+      const label =
+        period === "week" ? DAY_SHORT[d.getDay()] : `${d.getDate()}`;
+      return { date: s.date, label, mature: s.matureCount };
+    });
+  }, [snaps, period]);
+
+  if (data.length === 0) return null;
+
+  const latestMature = data[data.length - 1].mature;
+  const firstMature = data[0].mature;
+  const diff = latestMature - firstMature;
+
+  // Compute interval to avoid label overlap
+  const interval = data.length > 15 ? Math.ceil(data.length / 10) - 1 : 0;
+
+  return (
+    <div className="mt-3 bg-[#1a1a2e] rounded-lg border border-[#2a2a4a] p-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-[#34d399]">
+          Anki Mature Cards
+        </span>
+        <span className="text-xs text-gray-400">
+          {latestMature.toLocaleString()}
+          {diff > 0 && <span className="text-green-400 ml-1">+{diff}</span>}
+        </span>
+      </div>
+      <ResponsiveContainer width="100%" height={120}>
+        <LineChart data={data}>
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 10, fill: "#9ca3af" }}
+            height={20}
+            interval={interval}
+          />
+          <YAxis
+            tick={{ fontSize: 10, fill: "#9ca3af" }}
+            width={45}
+            domain={["dataMin - 10", "dataMax + 10"]}
+          />
+          <Tooltip
+            contentStyle={{
+              backgroundColor: "#16213e",
+              border: "1px solid #2a2a4a",
+              borderRadius: 8,
+              color: "#e5e7eb",
+              fontSize: 12,
+            }}
+            formatter={(value) => [Number(value).toLocaleString(), "Mature"]}
+          />
+          <Line
+            type="monotone"
+            dataKey="mature"
+            stroke="#34d399"
+            strokeWidth={2}
+            dot={{ r: 2, fill: "#34d399" }}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 export function WeekChart() {
   const { userId, settings, dataVersion } = useAppStore();
   const [period, setPeriod] = useState<Period>("month");
@@ -130,7 +226,7 @@ export function WeekChart() {
     // all
     return {
       start: new Date(0),
-      end: new Date(Date.now() + 86400000),
+      end: new Date(now.getTime() + 86400000),
     };
   }, [period, offset, settings.weekStartsOn]);
 
@@ -204,7 +300,7 @@ export function WeekChart() {
             for (let m = 0; m < 12; m++) {
               const key = `${y}-${String(m + 1).padStart(2, "0")}`;
               bucketMap.set(key, {
-                label: `${MONTH_SHORT[m]} ${String(y).slice(2)}`,
+                label: `${y}/${String(m + 1).padStart(2, "0")}`,
                 active: 0,
                 passive: 0,
                 anki: 0,
@@ -315,6 +411,29 @@ export function WeekChart() {
 
   const totalSec = rawData.reduce((s, d) => s + d.total, 0);
 
+  // Compute the number of days in the period
+  const dayCount = useMemo(() => {
+    if (period === "all") {
+      // Find actual min/max dates from entries and snaps
+      let minTs = Infinity;
+      let maxTs = -Infinity;
+      for (const e of entries) {
+        if (e.startTime < minTs) minTs = e.startTime;
+        if (e.startTime > maxTs) maxTs = e.startTime;
+      }
+      for (const s of snaps) {
+        const ts = new Date(s.date + "T00:00:00").getTime();
+        if (ts < minTs) minTs = ts;
+        if (ts > maxTs) maxTs = ts;
+      }
+      if (minTs === Infinity) return 0;
+      return Math.max(1, Math.round((maxTs - minTs) / 86400000) + 1);
+    }
+    return Math.round(
+      (dateRange.end.getTime() - dateRange.start.getTime()) / 86400000,
+    );
+  }, [period, dateRange, entries, snaps]);
+
   // Compute category totals for the distribution badges
   const catTotals = rawData.reduce(
     (acc, d) => {
@@ -377,17 +496,24 @@ export function WeekChart() {
             <button
               onClick={() => setOffset((o) => o - 1)}
               className="text-gray-400 hover:text-white text-lg px-1"
+              aria-label="Previous period"
             >
               ‹
             </button>
           )}
           <h2 className="text-lg font-semibold text-gray-200">{periodLabel}</h2>
+          {dayCount > 0 && (
+            <span className="text-xs text-gray-500 tabular-nums">
+              {dayCount} days
+            </span>
+          )}
           {period !== "all" && (
             <>
               <button
                 onClick={() => setOffset((o) => o + 1)}
                 disabled={offset >= 0}
                 className="text-gray-400 hover:text-white text-lg px-1 disabled:opacity-30"
+                aria-label="Next period"
               >
                 ›
               </button>
@@ -425,7 +551,7 @@ export function WeekChart() {
               </button>
             ))}
           </div>
-          <div className="text-2xl font-bold text-white">
+          <div className="text-2xl font-bold text-white tabular-nums">
             {fmtHMS(totalSec) || "0:00:00"}
           </div>
         </div>
@@ -436,11 +562,11 @@ export function WeekChart() {
         {(["active", "passive", "anki"] as const).map((cat) => (
           <div key={cat} className="flex items-center gap-1">
             <div
-              className="w-2 h-2 rounded-full"
+              className="size-2 rounded-full"
               style={{ backgroundColor: CATEGORY_COLORS[cat] }}
             />
             <span className="text-gray-500">{CATEGORY_LABELS[cat]}</span>
-            <span className="text-gray-400 font-medium">
+            <span className="text-gray-400 font-medium tabular-nums">
               {fmtHMS(catTotals[cat]) || "0:00:00"}
             </span>
           </div>
@@ -463,11 +589,19 @@ export function WeekChart() {
                 <XAxis
                   dataKey="label"
                   tick={{
-                    fontSize: period === "week" ? 12 : 10,
+                    fontSize: period === "week" ? 12 : 9,
                     fill: "#9ca3af",
                   }}
-                  height={25}
-                  interval={period === "month" ? 4 : 0}
+                  height={period === "all" ? 35 : 25}
+                  angle={period === "all" ? -45 : 0}
+                  textAnchor={period === "all" ? "end" : "middle"}
+                  interval={
+                    period === "week"
+                      ? 0
+                      : period === "month"
+                        ? 4
+                        : Math.max(0, Math.ceil(chartData.length / 12) - 1)
+                  }
                 />
                 <YAxis
                   tick={{ fontSize: 11, fill: "#9ca3af" }}
@@ -482,6 +616,19 @@ export function WeekChart() {
                     color: "#e5e7eb",
                   }}
                   labelStyle={{ color: "#9ca3af" }}
+                  labelFormatter={(label, payload) => {
+                    if (period === "year" || period === "all") {
+                      const dateKey = payload?.[0]?.payload?.date as
+                        | string
+                        | undefined;
+                      if (dateKey && dateKey.includes("-")) {
+                        const [y, m] = dateKey.split("-");
+                        return `${y}/${m}`;
+                      }
+                      return String(label);
+                    }
+                    return String(label);
+                  }}
                   formatter={(value, name) => {
                     const sec = Number(value);
                     return [
@@ -550,15 +697,19 @@ export function WeekChart() {
                       ))}
                     </Pie>
                     <Tooltip
+                      isAnimationActive={false}
+                      wrapperStyle={{ zIndex: 10 }}
                       contentStyle={{
                         backgroundColor: "#16213e",
                         border: "1px solid #2a2a4a",
                         borderRadius: 8,
-                        color: "#e5e7eb",
-                        fontSize: 12,
+                        fontSize: 13,
+                        padding: "8px 12px",
                       }}
-                      formatter={(value) => [
+                      itemStyle={{ color: "#ffffff", fontWeight: 600 }}
+                      formatter={(value, name) => [
                         fmtHMS(Number(value)) || "0:00:00",
+                        String(name),
                       ]}
                     />
                   </PieChart>
@@ -578,7 +729,7 @@ export function WeekChart() {
                 {pieData.map((d) => (
                   <div key={d.key} className="flex items-center gap-1">
                     <div
-                      className="w-2 h-2 rounded-sm"
+                      className="size-2 rounded-sm"
                       style={{ backgroundColor: d.color }}
                     />
                     <span className="text-gray-400">{d.pct}%</span>
@@ -590,6 +741,11 @@ export function WeekChart() {
           )}
         </div>
       </div>
+
+      {/* Anki Mature Trend */}
+      {snaps.length > 0 && snaps.some((s) => s.matureCount > 0) && (
+        <AnkiMatureTrend snaps={snaps} period={period} />
+      )}
     </div>
   );
 }

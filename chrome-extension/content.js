@@ -59,10 +59,20 @@
   function onPlay() {
     const id = getVideoId();
     if (!id || isAd()) return;
+    const isNew = state?.vid !== id;
     ensure(id);
     state.on = true;
     state.tick = Date.now();
     state.title = getTitle();
+    // YouTube SPA: タイトルDOMの更新が再生開始より遅れることがあるため再取得
+    if (isNew) {
+      setTimeout(() => {
+        if (state?.vid === id) {
+          state.title = getTitle();
+          report();
+        }
+      }, 2000);
+    }
     if (!tickTimer) tickTimer = setInterval(tick, 2_000);
     report();
   }

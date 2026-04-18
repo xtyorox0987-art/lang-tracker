@@ -12,6 +12,8 @@ import type { Category } from "../types";
 export function DataManager() {
   const {
     userId,
+    settings,
+    setSettings,
     loadTodayEntries,
     loadWeekEntries,
     loadAnkiSnapshots,
@@ -118,24 +120,24 @@ export function DataManager() {
 
   return (
     <div className="p-4">
-      <h2 className="text-lg font-semibold text-gray-200 mb-3">
+      <h2 className="text-lg font-semibold text-gray-200 mb-3 text-balance">
         ⚙️ Data Management
       </h2>
 
       {/* Toggl Track Import */}
       <div className="mb-4 p-3 bg-[#2a2a4a] border border-[#3a3a5a] rounded-lg">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-sm font-medium text-[#e57cd8]">
+          <span className="text-sm font-medium text-[#ff6bcb]">
             Import from Toggl Track
           </span>
         </div>
-        <p className="text-xs text-gray-400 mb-2">
+        <p className="text-xs text-gray-400 mb-2 text-pretty">
           Toggl Track → Reports → Detailed → Export → PDF (free plan) or CSV.
           Imports entries with Project names: Active / Passive / Anki.
         </p>
         <button
           onClick={() => togglRef.current?.click()}
-          className="px-4 py-2 text-sm rounded-lg bg-[#e57cd8]/10 hover:bg-[#e57cd8]/20 text-[#e57cd8] font-medium transition-colors border border-[#e57cd8]/30"
+          className="px-4 py-2 text-sm rounded-lg bg-[#ff6bcb]/10 hover:bg-[#ff6bcb]/20 text-[#ff6bcb] font-medium transition-colors border border-[#ff6bcb]/30"
         >
           Select Toggl PDF / CSV
         </button>
@@ -176,7 +178,42 @@ export function DataManager() {
           className="hidden"
         />
       </div>
-      {msg && <p className="mt-3 text-sm text-gray-400">{msg}</p>}
+      {msg && (
+        <p
+          className="mt-3 text-sm text-gray-400"
+          role="status"
+          aria-live="polite"
+        >
+          {msg}
+        </p>
+      )}
+
+      {/* Daily Goal Setting */}
+      <div className="mt-4 p-3 bg-[#2a2a4a] border border-[#3a3a5a] rounded-lg">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-[#34d399]">
+            Daily Goal (minutes)
+          </span>
+          <input
+            type="number"
+            min="0"
+            max="1440"
+            step="5"
+            value={settings.dailyGoalMinutes}
+            onChange={(e) => {
+              const val = Math.max(
+                0,
+                Math.min(1440, Number(e.target.value) || 0),
+              );
+              setSettings({ ...settings, dailyGoalMinutes: val });
+            }}
+            className="w-20 px-2 py-1 text-sm rounded bg-[#1a1a2e] border border-[#3a3a5a] text-gray-200 text-right"
+          />
+        </div>
+        <p className="text-xs text-gray-500 mt-1 text-pretty">
+          Set to 0 to disable. Shows progress bar on Today panel.
+        </p>
+      </div>
 
       {/* Manual Entry */}
       <ManualEntryForm

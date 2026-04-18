@@ -1,7 +1,19 @@
 @import "tailwindcss";
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
   background-color: #1a1a2e;
   color: #e0e0e0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ensure selection is visible on dark theme */
+::selection {
+  background: rgba(75, 192, 200, 0.3);
+  color: white;
 }

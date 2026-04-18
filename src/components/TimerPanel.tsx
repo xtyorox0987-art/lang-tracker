@@ -18,13 +18,22 @@ export function TimerPanel() {
 
   useEffect(() => {
     if (!activeTimer?.isRunning) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setElapsed(0);
+      document.title = "Lang Tracker";
       return;
     }
-    const tick = () => setElapsed(Date.now() - activeTimer.startTime);
+    const tick = () => {
+      const ms = Date.now() - activeTimer.startTime;
+      setElapsed(ms);
+      document.title = `${formatDuration(ms)} - ${activeTimer.category === "active" ? "Active" : "Passive"} | Lang Tracker`;
+    };
     tick();
     const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      document.title = "Lang Tracker";
+    };
   }, [activeTimer]);
 
   const handleToggle = async (category: "active" | "passive") => {
@@ -43,10 +52,10 @@ export function TimerPanel() {
   return (
     <div className="p-4">
       {/* Timer display */}
-      {activeTimer?.isRunning && (
+      {activeTimer?.isRunning ? (
         <div className="mb-4 text-center">
           <div
-            className="text-5xl font-mono font-bold tracking-tight"
+            className="text-5xl font-mono font-bold tracking-tight tabular-nums"
             style={{ color: CATEGORY_COLORS[activeTimer.category] }}
           >
             {formatDuration(elapsed)}
@@ -55,6 +64,15 @@ export function TimerPanel() {
             {activeTimer.category === "active"
               ? "🎧 Active Listening"
               : "📻 Passive Listening"}
+          </div>
+        </div>
+      ) : (
+        <div className="mb-4 text-center">
+          <div className="text-4xl font-mono font-bold text-gray-600 tabular-nums">
+            0:00
+          </div>
+          <div className="mt-1 text-sm text-gray-500 text-pretty">
+            Ready to learn
           </div>
         </div>
       )}

@@ -9,9 +9,15 @@ import {
   setDoc,
   getDoc,
   deleteDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import type { TimeEntry, AnkiSnapshot, ActiveTimer } from "../types";
+import type {
+  TimeEntry,
+  AnkiSnapshot,
+  ActiveTimer,
+  AppSettings,
+} from "../types";
 
 // ---- Fallback: localStorage for when Firebase is not configured ----
 
@@ -71,6 +77,39 @@ export async function getTimeEntriesForRange(
   }
 }
 
+export async function updateTimeEntry(
+  userId: string,
+  entry: TimeEntry,
+): Promise<void> {
+  const clean = Object.fromEntries(
+    Object.entries(entry).filter(([, v]) => v !== undefined),
+  );
+  if (db) {
+    const ref = doc(db, "users", userId, "time_entries", entry.id);
+    await setDoc(ref, clean);
+  } else {
+    const key = `entries_${userId}`;
+    const entries = localGet<TimeEntry>(key).map((e) =>
+      e.id === entry.id ? entry : e,
+    );
+    localSet(key, entries);
+  }
+}
+
+export async function deleteTimeEntry(
+  userId: string,
+  entryId: string,
+): Promise<void> {
+  if (db) {
+    const ref = doc(db, "users", userId, "time_entries", entryId);
+    await deleteDoc(ref);
+  } else {
+    const key = `entries_${userId}`;
+    const entries = localGet<TimeEntry>(key).filter((e) => e.id !== entryId);
+    localSet(key, entries);
+  }
+}
+
 // ---- Anki Snapshots ----
 
 export async function addAnkiSnapshot(
@@ -88,6 +127,46 @@ export async function addAnkiSnapshot(
     snaps.push(snap);
     localSet(key, snaps);
   }
+}
+
+/** Batch-save up to 500 AnkiSnapshots per commit (Firestore limit). */
+export async function batchAddAnkiSnapshots(
+  userId: string,
+  snapshots: AnkiSnapshot[],
+): Promise<{ saved: number; failed: number }> {
+  if (!db) {
+    for (const snap of snapshots) await addAnkiSnapshot(userId, snap);
+    return { saved: snapshots.length, failed: 0 };
+  }
+  const BATCH_SIZE = 450; // stay under Firestore 500-op limit
+  let saved = 0;
+  let failed = 0;
+  for (let i = 0; i < snapshots.length; i += BATCH_SIZE) {
+    const chunk = snapshots.slice(i, i + BATCH_SIZE);
+    const batch = writeBatch(db);
+    for (const snap of chunk) {
+      const ref = doc(db, "users", userId, "anki_snapshots", snap.date);
+      batch.set(ref, snap, { merge: true });
+    }
+    try {
+      await batch.commit();
+      saved += chunk.length;
+    } catch {
+      // Retry once
+      try {
+        const retry = writeBatch(db);
+        for (const snap of chunk) {
+          const ref = doc(db, "users", userId, "anki_snapshots", snap.date);
+          retry.set(ref, snap, { merge: true });
+        }
+        await retry.commit();
+        saved += chunk.length;
+      } catch {
+        failed += chunk.length;
+      }
+    }
+  }
+  return { saved, failed };
 }
 
 export async function getAnkiSnapshotsForRange(
@@ -150,6 +229,37 @@ export async function clearActiveTimer(userId: string): Promise<void> {
     await deleteDoc(ref);
   } else {
     localStorage.removeItem(`timer_${userId}`);
+  }
+}
+
+// ---- Settings ----
+
+export async function saveSettings(
+  userId: string,
+  settings: AppSettings,
+): Promise<void> {
+  if (db) {
+    const ref = doc(db, "users", userId, "state", "settings");
+    await setDoc(ref, settings);
+  } else {
+    localStorage.setItem(`settings_${userId}`, JSON.stringify(settings));
+  }
+}
+
+export async function loadSettings(
+  userId: string,
+): Promise<AppSettings | null> {
+  if (db) {
+    const ref = doc(db, "users", userId, "state", "settings");
+    const snap = await getDoc(ref);
+    return snap.exists() ? (snap.data() as AppSettings) : null;
+  } else {
+    try {
+      const raw = localStorage.getItem(`settings_${userId}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
   }
 }
 
