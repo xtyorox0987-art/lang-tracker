@@ -20,6 +20,13 @@
       .querySelector("h1.ytd-watch-metadata yt-formatted-string")
       ?.textContent?.trim() || document.title.replace(" - YouTube", "");
 
+  const getChannel = () =>
+    document.querySelector("#owner #channel-name a")?.textContent?.trim() ||
+    document
+      .querySelector("ytd-watch-metadata ytd-channel-name a")
+      ?.textContent?.trim() ||
+    "";
+
   const send = (type, data) =>
     chrome.runtime.sendMessage({ type, ...data }).catch(() => {});
 
@@ -35,7 +42,10 @@
       return;
     }
     send("SAVE_ENTRY", {
+      videoId: state.vid,
+      url: state.url,
       title: state.title,
+      channel: state.channel,
       startTime: state.t0,
       endTime: Date.now(),
       duration: Math.round(state.sec),
@@ -49,6 +59,8 @@
     state = {
       vid,
       title: getTitle(),
+      channel: getChannel(),
+      url: location.href,
       t0: Date.now(),
       sec: 0,
       on: false,
@@ -64,11 +76,15 @@
     state.on = true;
     state.tick = Date.now();
     state.title = getTitle();
+    state.channel = getChannel();
+    state.url = location.href;
     // YouTube SPA: タイトルDOMの更新が再生開始より遅れることがあるため再取得
     if (isNew) {
       setTimeout(() => {
         if (state?.vid === id) {
           state.title = getTitle();
+          state.channel = getChannel();
+          state.url = location.href;
           report();
         }
       }, 2000);
@@ -105,6 +121,9 @@
     send("STATUS", {
       playing: state.on,
       title: state.title,
+      channel: state.channel,
+      videoId: state.vid,
+      url: state.url,
       duration: Math.round(d),
       startTime: state.t0,
     });

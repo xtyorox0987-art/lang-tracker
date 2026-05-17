@@ -4,6 +4,9 @@ import type {
   TimeEntry,
   AnkiSnapshot,
   AppSettings,
+  VideoResource,
+  VideoWatchSession,
+  DeckProgressSnapshot,
 } from "../types";
 import { DEFAULT_SETTINGS, toLocalDateStr } from "../types";
 import {
@@ -17,6 +20,11 @@ import {
   addTimeEntry,
   getTimeEntriesForRange,
   getAnkiSnapshotsForRange,
+  getVideoResources,
+  upsertVideoResource,
+  addVideoWatchSession,
+  getVideoWatchSessionsForRange,
+  getLatestDeckProgressSnapshots,
   saveActiveTimer,
   loadActiveTimer,
   clearActiveTimer,
@@ -67,6 +75,15 @@ interface AppState {
   // Selected date for EntryList / AnkiStatus sync
   selectedDate: string;
   setSelectedDate: (date: string) => void;
+
+  // Recommendations
+  videoResources: VideoResource[];
+  videoWatchSessions: VideoWatchSession[];
+  deckProgressSnapshots: DeckProgressSnapshot[];
+  loadRecommendationData: () => Promise<void>;
+  saveVideoResource: (resource: VideoResource) => Promise<void>;
+  markVideoWatched: (resource: VideoResource) => Promise<void>;
+  dismissVideoResource: (resource: VideoResource) => Promise<void>;
 
   // Init
   initTimer: () => Promise<void>;
@@ -240,6 +257,79 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   selectedDate: toLocalDateStr(),
   setSelectedDate: (date: string) => set({ selectedDate: date }),
+
+  videoResources: [],
+  videoWatchSessions: [],
+  deckProgressSnapshots: [],
+
+  loadRecommendationData: async () => {
+    const { userId } = get();
+    if (!userId) return;
+    const now = Date.now();
+    const ninetyDaysAgo = now - 90 * 86400000;
+    const [resources, sessions, deckSnaps] = await Promise.all([
+      getVideoResources(userId),
+      getVideoWatchSessionsForRange(userId, ninetyDaysAgo, now + 86400000),
+      getLatestDeckProgressSnapshots(userId),
+    ]);
+    set({
+      videoResources: resources,
+      videoWatchSessions: sessions,
+      deckProgressSnapshots: deckSnaps,
+    });
+  },
+
+  saveVideoResource: async (resource) => {
+    const { userId } = get();
+    if (!userId) return;
+    await upsertVideoResource(userId, resource);
+    await get().loadRecommendationData();
+  },
+
+  markVideoWatched: async (resource) => {
+    const { userId } = get();
+    if (!userId) return;
+    const now = Date.now();
+    const duration = resource.durationSec ?? 0;
+    const watched: VideoResource = {
+      ...resource,
+      status: "watched",
+      watchedAt: now,
+      updatedAt: now,
+    };
+    await upsertVideoResource(userId, watched);
+    if (duration > 0) {
+      await addVideoWatchSession(userId, {
+        id: crypto.randomUUID(),
+        resourceId: resource.id,
+        videoId: resource.videoId,
+        title: resource.title,
+        channel: resource.channel,
+        url: resource.url,
+        startTime: now - duration * 1000,
+        endTime: now,
+        duration,
+        listeningMode: "active",
+        completionPct: 100,
+        source: "manual",
+        createdAt: now,
+      });
+    }
+    await get().loadRecommendationData();
+  },
+
+  dismissVideoResource: async (resource) => {
+    const { userId } = get();
+    if (!userId) return;
+    const now = Date.now();
+    await upsertVideoResource(userId, {
+      ...resource,
+      status: "dismissed",
+      dismissedAt: now,
+      updatedAt: now,
+    });
+    await get().loadRecommendationData();
+  },
 
   initTimer: async () => {
     const { userId } = get();

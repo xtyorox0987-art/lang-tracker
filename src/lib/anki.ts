@@ -1,4 +1,4 @@
-import type { AnkiSnapshot } from "../types";
+import type { AnkiSnapshot, DeckProgressSnapshot, DeckRole } from "../types";
 import { toLocalDateStr } from "../types";
 
 // In dev, use Vite proxy to avoid CORS. In production, direct to AnkiConnect.
@@ -123,6 +123,86 @@ export async function fetchTodayAnkiStats(): Promise<AnkiSnapshot | null> {
   } catch {
     return null;
   }
+}
+
+export async function fetchDeckProgressSnapshots(): Promise<
+  DeckProgressSnapshot[]
+> {
+  const connected = await isAnkiConnected();
+  if (!connected) return [];
+
+  const deckNames: string[] = await ankiInvoke("deckNames");
+  const syncedAt = Date.now();
+  const snapshots: DeckProgressSnapshot[] = [];
+
+  for (const deckName of deckNames) {
+    const query = deckQuery(deckName);
+    const [newIds, learnIds, reviewIds, dueIds, allIds] = await Promise.all([
+      ankiInvoke("findCards", { query: `${query} is:new` }) as Promise<
+        number[]
+      >,
+      ankiInvoke("findCards", { query: `${query} is:learn` }) as Promise<
+        number[]
+      >,
+      ankiInvoke("findCards", { query: `${query} is:review` }) as Promise<
+        number[]
+      >,
+      ankiInvoke("findCards", { query: `${query} is:due` }) as Promise<
+        number[]
+      >,
+      ankiInvoke("findCards", { query }) as Promise<number[]>,
+    ]);
+
+    snapshots.push({
+      id: `${sanitizeDeckId(deckName)}-${syncedAt}`,
+      deckName,
+      role: inferDeckRole(deckName),
+      deckNumber: inferDeckNumber(deckName),
+      newCount: newIds.length,
+      learnCount: learnIds.length,
+      reviewCount: reviewIds.length,
+      dueCount: dueIds.length,
+      totalCount: allIds.length,
+      syncedAt,
+    });
+  }
+
+  return snapshots;
+}
+
+function deckQuery(deckName: string): string {
+  return `deck:"${deckName.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function sanitizeDeckId(deckName: string): string {
+  return encodeURIComponent(deckName).replace(/%/g, "").slice(0, 120) || "deck";
+}
+
+function inferDeckRole(deckName: string): DeckRole {
+  const lower = deckName.toLowerCase();
+  if (deckName.includes("残り") || lower.includes("remaining")) {
+    return "foundationRemaining";
+  }
+  if (
+    lower.includes("youtube") ||
+    lower.includes("channel") ||
+    deckName.includes("チャンネル")
+  ) {
+    return "youtubeChannel";
+  }
+  if (
+    deckName.includes("基礎") ||
+    lower.includes("foundation") ||
+    lower.includes("basic")
+  ) {
+    return "foundation";
+  }
+  return "other";
+}
+
+function inferDeckNumber(deckName: string): number | undefined {
+  const match = deckName.match(/(?:^|[^0-9])(\d{1,3})(?:[^0-9]|$)/);
+  return match ? Number(match[1]) : undefined;
 }
 
 /**

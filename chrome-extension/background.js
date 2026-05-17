@@ -104,6 +104,7 @@ async function writeEntry(data) {
 
     if (res.ok) {
       console.log("[LT] Firestore write OK, duration:", data.duration);
+      await writeVideoArtifacts(auth, data);
       // 今日の合計を更新
       const today = new Date().toISOString().slice(0, 10);
       const { todayDate, todayTotal = 0 } = await chrome.storage.local.get([
@@ -129,6 +130,71 @@ async function writeEntry(data) {
     }
   } catch (e) {
     console.error("Failed to save entry:", e);
+  }
+}
+
+async function writeVideoArtifacts(auth, data) {
+  if (!data.videoId && !data.url) return;
+
+  const now = Date.now();
+  const resourceId = data.videoId ? `yt-${data.videoId}` : crypto.randomUUID();
+  const title = (data.title || "Untitled YouTube video").slice(0, 200);
+  const channel = (data.channel || "Unknown channel").slice(0, 120);
+  const url =
+    data.url ||
+    (data.videoId ? `https://www.youtube.com/watch?v=${data.videoId}` : "");
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${auth.idToken}`,
+  };
+
+  const sessionDoc = {
+    fields: {
+      id: { stringValue: crypto.randomUUID() },
+      resourceId: { stringValue: resourceId },
+      videoId: { stringValue: data.videoId || "" },
+      title: { stringValue: title },
+      channel: { stringValue: channel },
+      url: { stringValue: url },
+      startTime: { integerValue: String(data.startTime) },
+      endTime: { integerValue: String(data.endTime) },
+      duration: { integerValue: String(data.duration) },
+      listeningMode: { stringValue: "active" },
+      source: { stringValue: "youtube-extension" },
+      createdAt: { integerValue: String(now) },
+    },
+  };
+
+  const resourceFields = {
+    id: { stringValue: resourceId },
+    url: { stringValue: url },
+    videoId: { stringValue: data.videoId || "" },
+    title: { stringValue: title },
+    channel: { stringValue: channel },
+    source: { stringValue: "youtube-extension" },
+    updatedAt: { integerValue: String(now) },
+  };
+  const updateMask = Object.keys(resourceFields)
+    .map((field) => `updateMask.fieldPaths=${encodeURIComponent(field)}`)
+    .join("&");
+
+  try {
+    await fetch(`${FIRESTORE_URL}/users/${auth.userId}/video_watch_sessions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(sessionDoc),
+    });
+
+    await fetch(
+      `${FIRESTORE_URL}/users/${auth.userId}/video_resources/${encodeURIComponent(resourceId)}?${updateMask}`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ fields: resourceFields }),
+      },
+    );
+  } catch (e) {
+    console.error("Failed to save video artifacts:", e);
   }
 }
 

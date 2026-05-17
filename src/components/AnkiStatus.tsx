@@ -4,11 +4,13 @@ import {
   fetchTodayAnkiStats,
   isAnkiConnected,
   backfillAnkiMatureHistory,
+  fetchDeckProgressSnapshots,
 } from "../lib/anki";
 import {
   addAnkiSnapshot,
   getAnkiSnapshotsForRange,
   batchAddAnkiSnapshots,
+  addDeckProgressSnapshot,
 } from "../store/repository";
 import { CATEGORY_COLORS, toLocalDateStr } from "../types";
 import type { AnkiSnapshot } from "../types";
@@ -25,12 +27,15 @@ export function AnkiStatus() {
     bumpDataVersion,
     dataVersion,
     selectedDate,
+    loadRecommendationData,
   } = useAppStore();
   const [connected, setConnected] = useState<boolean | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillProgress, setBackfillProgress] = useState<string | null>(null);
+  const [deckSyncing, setDeckSyncing] = useState(false);
+  const [deckSyncMsg, setDeckSyncMsg] = useState<string | null>(null);
   const [dateSnap, setDateSnap] = useState<AnkiSnapshot | null>(null);
 
   const today = toLocalDateStr();
@@ -122,6 +127,32 @@ export function AnkiStatus() {
       setTimeout(() => setBackfillProgress(null), 8000);
     } finally {
       setBackfilling(false);
+    }
+  };
+
+  const handleDeckSync = async () => {
+    if (!userId || deckSyncing) return;
+    setDeckSyncing(true);
+    setDeckSyncMsg("Syncing deck progress…");
+    try {
+      const snapshots = await fetchDeckProgressSnapshots();
+      await Promise.all(
+        snapshots.map((snap) => addDeckProgressSnapshot(userId, snap)),
+      );
+      await loadRecommendationData();
+      setDeckSyncMsg(
+        snapshots.length > 0
+          ? `Synced ${snapshots.length} decks for recommendations`
+          : "No Anki decks found",
+      );
+      setTimeout(() => setDeckSyncMsg(null), 5000);
+    } catch (err) {
+      setDeckSyncMsg(
+        `Deck sync failed: ${err instanceof Error ? err.message : "Unknown"}`,
+      );
+      setTimeout(() => setDeckSyncMsg(null), 8000);
+    } finally {
+      setDeckSyncing(false);
     }
   };
 
@@ -236,6 +267,27 @@ export function AnkiStatus() {
               aria-live="polite"
             >
               {backfillProgress}
+            </p>
+          )}
+          <div className="mt-3 flex items-center justify-between border-t border-[#2a2a4a] pt-3">
+            <span className="text-xs text-gray-500">
+              Sync deck progress for video recommendations
+            </span>
+            <button
+              onClick={handleDeckSync}
+              disabled={deckSyncing}
+              className="px-3 py-1 text-xs rounded-md bg-[#2a2a4a] text-gray-400 hover:bg-[#3a3a5a] hover:text-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {deckSyncing ? "Syncing…" : "Sync Decks"}
+            </button>
+          </div>
+          {deckSyncMsg && (
+            <p
+              className="mt-1 text-xs text-gray-400"
+              role="status"
+              aria-live="polite"
+            >
+              {deckSyncMsg}
             </p>
           )}
         </div>

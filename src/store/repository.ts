@@ -17,6 +17,9 @@ import type {
   AnkiSnapshot,
   ActiveTimer,
   AppSettings,
+  VideoResource,
+  VideoWatchSession,
+  DeckProgressSnapshot,
 } from "../types";
 
 // ---- Fallback: localStorage for when Firebase is not configured ----
@@ -192,6 +195,163 @@ export async function getAnkiSnapshotsForRange(
   }
 }
 
+// ---- Video Resources ----
+
+function normalizeVideoResource(resource: VideoResource): VideoResource {
+  const now = Date.now();
+  return {
+    ...resource,
+    source: resource.source ?? "manual",
+    status: resource.status ?? "candidate",
+    createdAt: resource.createdAt ?? resource.updatedAt ?? now,
+    updatedAt: resource.updatedAt ?? resource.createdAt ?? now,
+  };
+}
+
+export async function upsertVideoResource(
+  userId: string,
+  resource: VideoResource,
+): Promise<void> {
+  const clean = Object.fromEntries(
+    Object.entries(resource).filter(([, v]) => v !== undefined),
+  );
+  if (db) {
+    const ref = doc(db, "users", userId, "video_resources", resource.id);
+    await setDoc(ref, clean, { merge: true });
+  } else {
+    const key = `videos_${userId}`;
+    const resources = localGet<VideoResource>(key).filter(
+      (v) => v.id !== resource.id,
+    );
+    resources.push(resource);
+    localSet(key, resources);
+  }
+}
+
+export async function getVideoResources(
+  userId: string,
+): Promise<VideoResource[]> {
+  if (db) {
+    const col = collection(db, "users", userId, "video_resources");
+    const snap = await getDocs(query(col, orderBy("updatedAt", "desc")));
+    return snap.docs.map((d) =>
+      normalizeVideoResource(d.data() as VideoResource),
+    );
+  } else {
+    const key = `videos_${userId}`;
+    return localGet<VideoResource>(key)
+      .map(normalizeVideoResource)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+}
+
+export async function deleteVideoResource(
+  userId: string,
+  resourceId: string,
+): Promise<void> {
+  if (db) {
+    const ref = doc(db, "users", userId, "video_resources", resourceId);
+    await deleteDoc(ref);
+  } else {
+    const key = `videos_${userId}`;
+    const resources = localGet<VideoResource>(key).filter(
+      (v) => v.id !== resourceId,
+    );
+    localSet(key, resources);
+  }
+}
+
+// ---- Video Watch Sessions ----
+
+export async function addVideoWatchSession(
+  userId: string,
+  session: VideoWatchSession,
+): Promise<void> {
+  const clean = Object.fromEntries(
+    Object.entries(session).filter(([, v]) => v !== undefined),
+  );
+  if (db) {
+    const col = collection(db, "users", userId, "video_watch_sessions");
+    await addDoc(col, clean);
+  } else {
+    const key = `video_sessions_${userId}`;
+    const sessions = localGet<VideoWatchSession>(key);
+    sessions.push(session);
+    localSet(key, sessions);
+  }
+}
+
+export async function getVideoWatchSessionsForRange(
+  userId: string,
+  startMs: number,
+  endMs: number,
+): Promise<VideoWatchSession[]> {
+  if (db) {
+    const col = collection(db, "users", userId, "video_watch_sessions");
+    const q = query(
+      col,
+      where("startTime", ">=", startMs),
+      where("startTime", "<", endMs),
+      orderBy("startTime", "desc"),
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map(
+      (d) => ({ ...d.data(), id: d.id }) as VideoWatchSession,
+    );
+  } else {
+    const key = `video_sessions_${userId}`;
+    return localGet<VideoWatchSession>(key)
+      .filter((s) => s.startTime >= startMs && s.startTime < endMs)
+      .sort((a, b) => b.startTime - a.startTime);
+  }
+}
+
+// ---- Deck Progress Snapshots ----
+
+export async function addDeckProgressSnapshot(
+  userId: string,
+  snap: DeckProgressSnapshot,
+): Promise<void> {
+  const clean = Object.fromEntries(
+    Object.entries(snap).filter(([, v]) => v !== undefined),
+  );
+  if (db) {
+    const ref = doc(db, "users", userId, "deck_progress_snapshots", snap.id);
+    await setDoc(ref, clean, { merge: true });
+  } else {
+    const key = `deck_progress_${userId}`;
+    const snaps = localGet<DeckProgressSnapshot>(key).filter(
+      (s) => s.id !== snap.id,
+    );
+    snaps.push(snap);
+    localSet(key, snaps);
+  }
+}
+
+export async function getLatestDeckProgressSnapshots(
+  userId: string,
+): Promise<DeckProgressSnapshot[]> {
+  const latestByDeck = new Map<string, DeckProgressSnapshot>();
+  const collect = (snapshots: DeckProgressSnapshot[]) => {
+    for (const snap of snapshots) {
+      const existing = latestByDeck.get(snap.deckName);
+      if (!existing || snap.syncedAt > existing.syncedAt) {
+        latestByDeck.set(snap.deckName, snap);
+      }
+    }
+    return [...latestByDeck.values()].sort((a, b) => b.syncedAt - a.syncedAt);
+  };
+
+  if (db) {
+    const col = collection(db, "users", userId, "deck_progress_snapshots");
+    const snap = await getDocs(query(col, orderBy("syncedAt", "desc")));
+    return collect(snap.docs.map((d) => d.data() as DeckProgressSnapshot));
+  }
+
+  const key = `deck_progress_${userId}`;
+  return collect(localGet<DeckProgressSnapshot>(key));
+}
+
 // ---- Active Timer (singleton) ----
 
 export async function saveActiveTimer(
@@ -319,21 +479,40 @@ export async function exportAllData(userId: string) {
     "2000-01-01",
     "2100-01-01",
   );
+  const videoResources = await getVideoResources(userId);
+  const videoWatchSessions = await getVideoWatchSessionsForRange(
+    userId,
+    farPast,
+    farFuture,
+  );
+  const deckProgressSnapshots = await getLatestDeckProgressSnapshots(userId);
 
   return {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     timeEntries: entries,
     ankiSnapshots: ankiSnaps,
+    videoResources,
+    videoWatchSessions,
+    deckProgressSnapshots,
   };
 }
 
 export async function importData(
   userId: string,
-  data: { timeEntries?: TimeEntry[]; ankiSnapshots?: AnkiSnapshot[] },
+  data: {
+    timeEntries?: TimeEntry[];
+    ankiSnapshots?: AnkiSnapshot[];
+    videoResources?: VideoResource[];
+    videoWatchSessions?: VideoWatchSession[];
+    deckProgressSnapshots?: DeckProgressSnapshot[];
+  },
 ): Promise<{ added: number; skipped: number }> {
   const entries = data.timeEntries ?? [];
   const snaps = data.ankiSnapshots ?? [];
+  const videoResources = data.videoResources ?? [];
+  const videoWatchSessions = data.videoWatchSessions ?? [];
+  const deckProgressSnapshots = data.deckProgressSnapshots ?? [];
 
   // 重複チェック: 既存エントリと startTime+category+duration が一致するものはスキップ
   const existingEntries = await getTimeEntriesForRange(
@@ -360,6 +539,18 @@ export async function importData(
 
   for (const snap of snaps) {
     await addAnkiSnapshot(userId, snap);
+  }
+
+  for (const resource of videoResources) {
+    await upsertVideoResource(userId, resource);
+  }
+
+  for (const session of videoWatchSessions) {
+    await addVideoWatchSession(userId, session);
+  }
+
+  for (const snap of deckProgressSnapshots) {
+    await addDeckProgressSnapshot(userId, snap);
   }
 
   return { added, skipped };

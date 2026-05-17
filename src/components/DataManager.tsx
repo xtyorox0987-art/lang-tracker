@@ -17,6 +17,7 @@ export function DataManager() {
     loadTodayEntries,
     loadWeekEntries,
     loadAnkiSnapshots,
+    loadRecommendationData,
     bumpDataVersion,
   } = useAppStore();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -49,6 +50,7 @@ export function DataManager() {
       await loadTodayEntries();
       await loadWeekEntries();
       await loadAnkiSnapshots();
+      await loadRecommendationData();
       bumpDataVersion();
       setMsg(
         `Import complete: ${added} added${duped > 0 ? `, ${duped} duplicates skipped` : ""}`,

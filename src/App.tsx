@@ -3,6 +3,7 @@ import { AuthGate, UserMenu } from "./components/Auth";
 import { TimerPanel } from "./components/TimerPanel";
 import { EntryList } from "./components/EntryList";
 import { AnkiStatus } from "./components/AnkiStatus";
+import { RecommendedContent } from "./components/RecommendedContent";
 const WeekChart = lazy(() =>
   import("./components/WeekChart").then((m) => ({ default: m.WeekChart })),
 );
@@ -25,6 +26,7 @@ function Dashboard() {
     loadMonthAnkiSnapshots,
     loadYearAnkiSnapshots,
     loadAllAnkiSnapshots,
+    loadRecommendationData,
   } = useAppStore();
   const [showSettings, setShowSettings] = useState(false);
 
@@ -38,6 +40,7 @@ function Dashboard() {
       loadTodayEntries(),
       loadWeekEntries(),
       loadAnkiSnapshots(),
+      loadRecommendationData(),
     ]);
 
     // Deferred: month/year/all are only needed for Streak + extended chart ranges
@@ -74,6 +77,7 @@ function Dashboard() {
     loadMonthAnkiSnapshots,
     loadYearAnkiSnapshots,
     loadAllAnkiSnapshots,
+    loadRecommendationData,
   ]);
 
   return (
@@ -105,6 +109,13 @@ function Dashboard() {
         <div className="bg-[#16213e] border-b border-[#2a2a4a]">
           <ErrorBoundary>
             <TimerPanel />
+          </ErrorBoundary>
+        </div>
+
+        {/* Recommendations */}
+        <div className="bg-[#16213e] mt-2 border-y border-[#2a2a4a]">
+          <ErrorBoundary>
+            <RecommendedContent />
           </ErrorBoundary>
         </div>
 
